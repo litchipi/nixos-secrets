@@ -15,6 +15,13 @@ seclib: system_secrets: {config, lib, pkgs, ...}@args: let
       default = true;
       visible = false;
     };
+    enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        If set to true, will decrypt the secret, if not it will stay encrypted and be unusable.
+      '';
+    };
     file = lib.mkOption {
       description = "Where to decrypt the secret ${name}";
       default = seclib.gen_secret_path parents name;
@@ -120,6 +127,7 @@ in {
 
     system.activationScripts.decrypt_secrets = let
       decrypt_secret = parents: secret: let
+        secret_id = "${builtins.concatStringsSep "." parents}.${secret.name}";
         dst = seclib.gen_secret_path parents secret.name;
         decrypt_cmd = builtins.concatStringsSep " | " [
           "echo \"${secret.age_enc_data}\""
@@ -127,10 +135,12 @@ in {
           "${pkgs.rage}/bin/rage --decrypt -i ${cfg.provision_key.file}"
           secret.transform
         ];
-      in ''
+      in if secret.enable then ''
         mkdir -p $(dirname ${dst})
-        echo "Decrypting ${builtins.concatStringsSep "." parents}.${secret.name}..."
+        echo "Decrypting ${secret_id}..."
         ${decrypt_cmd} > ${secret.file}
+      '' else ''
+        echo "Decryption for ${secret_id} disabled, skipping ..."
       '';
 
       decrypt_all_secrets = parents: name: data: if builtins.hasAttr "__is_leaf" data

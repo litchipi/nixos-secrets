@@ -3,10 +3,6 @@ seclib: {config, lib, pkgs, ...}: let
 
   target_bind = "local-fs.target";
 in {
-  # Script triggered at system activation or boot time
-  #   Will decrypt the provision key from password if needed
-  #   Will decrypt all secrets from provision key, and generate correct symlinks
-  #   Will NOT set permissions yet as the users may not yet be created
   create-secret-files = {
     script = builtins.concatStringsSep "\n\n" (lib.attrsets.mapAttrsToList
       (name: f: let

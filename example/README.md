@@ -97,10 +97,15 @@ When passing the password for a user for example, the value expected is the hash
 password, not the plaintext value.
 
 To handle this (and any other similar cases), we transform the secret by doing so:
-```
+``` nix
 secrets = {
     passwords.username.transform = "${pkgs.openssl}/bin/openssl passwd -6 -stdin";
 }  ;
 
 users.users.username.passwordFile = config.secrets.store.passwords.username.file;
+```
+
+The secret will be piped into the code:
+```
+<decrypted secret> | <transformation code> > /path/to/destination
 ```
