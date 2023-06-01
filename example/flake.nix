@@ -6,7 +6,7 @@
       url = "github:nix-community/nixos-generators/1.7.0";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nixos-secrets-manager.url = "path:..";
+    nixos-secrets-manager.url = "path:./..";
   };
 
   outputs = inputs: inputs.flake-utils.lib.eachDefaultSystem (system: let
@@ -28,7 +28,7 @@
       key_type = "rsa";
     };
     packages.default = inputs.nixosgen.nixosGenerate {
-      pkgs = inputs.nixpkgs.legacyPackages.${system};
+      inherit pkgs;
       format = "vm-nogui";
       modules = [
         (pkgs.secrets.mkModule ./secrets.json)

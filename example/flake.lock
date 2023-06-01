@@ -52,12 +52,12 @@
       },
       "locked": {
         "lastModified": 0,
-        "narHash": "sha256-MnVJtZAhfORRFm8zN62/kW/AlgkyTKtcLu/jceKgRGo=",
-        "path": "..",
+        "narHash": "sha256-hZeJmKbO0HUm/UNpYUN9RnLIKvoC/PbGgKzMo2XnrgQ=",
+        "path": "./..",
         "type": "path"
       },
       "original": {
-        "path": "..",
+        "path": "./..",
         "type": "path"
       }
     },
