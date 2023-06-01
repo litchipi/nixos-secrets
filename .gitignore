@@ -1,3 +1,4 @@
 *.json
 !secret.json
 *.old
+*.bck.py

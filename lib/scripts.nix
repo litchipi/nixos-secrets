@@ -1,47 +1,4 @@
 { manage_secrets, pkgs, lib, ... }: let
-  tryInitSecrets = {
-    secretf,
-    pubk_dirs_args,
-    add_pubk_args,
-    pwd_cache,
-  ... }: ''
-    if ! [ -f ${secretf} ]; then
-      ${manage_secrets} --pwd-cache ${pwd_cache} init \
-        ${secretf} \
-        ${pubk_dirs_args} \
-        ${add_pubk_args}
-    fi
-  '';
-
-  loadSecrets = {
-    secretf,
-    plaintext_file,
-    pwd_cache,
-    secrets_owners,
-  ... }: ''
-    echo "$OWNER" | xargs ${manage_secrets} --pwd-cache ${pwd_cache} \
-      ${plaintext_file} \
-      --owners '${builtins.toJSON secrets_owners}'
-      ${secretf} \
-      load
-  '';
-
-  saveSecrets = {
-    secretf,
-    pubk_dirs_args,
-    add_pubk_args,
-    plaintext_file,
-    pwd_cache,
-    secrets_owners,
-  ... }: ''
-    echo "$OWNER" | xargs ${manage_secrets} --pwd-cache ${pwd_cache} secure \
-      ${plaintext_file} \
-      ${secretf} \
-      ${pubk_dirs_args} \
-      ${add_pubk_args} \
-      --owners '${builtins.toJSON secrets_owners}'
-  '';
-
   openssl_provision_key_common_args = "-pbkdf2 -aes-256-cbc -salt";
   default_encrypt_provision_key = key: file: builtins.concatStringsSep " " [
     "${pkgs.openssl}/bin/openssl enc"
@@ -50,7 +7,7 @@
     "-out \"${file}\""
   ];
   default_decrypt_provision_key = key: file: builtins.concatStringsSep " " [
-    "${pkgs.openssl}/bin/openssl enc"
+    "${pkgs.openssl}/bin/openssl dec"
     openssl_provision_key_common_args
     "-d"
     "-in \"${key}\""
@@ -58,19 +15,28 @@
   ];
 in {
   mkDecryptProvKeyScript = {
-      keypath,
       privk_dir,
       decrypt_key_cmd ? default_decrypt_provision_key,
       secret_key_path ? "/etc/secrets_key",
-      secret_key_chechsum_file ? "/etc/secrets_key.sha512sum",
       runtimeInputs ? [],
     }: let
       script = ''
-        sudo ${decrypt_key_cmd keypath secret_key_path}
-        sha512sum ${keypath} | cut -d " " -f 1 | sudo tee ${secret_key_chechsum_file}
-        sudo chmod 400 ${secret_key_path} ${secret_key_chechsum_file}
-        sudo chown root:root ${secret_key_path} ${secret_key_chechsum_file}
+        if [ $# -ne 1 ]; then
+          echo "Usage: $0 <key path>"
+          exit 1;
+        fi
+        
+        KEYPATH=$(realpath "$1")
+        if ! [ -f "$KEYPATH" ]; then
+          echo "Key path $KEYPATH doesn't exist"
+          exit 1;
+        fi
+        
+        sudo ${decrypt_key_cmd "$KEYPATH" secret_key_path}
+        sudo chmod 400 ${secret_key_path}
+        sudo chown root:root ${secret_key_path}
       '';
+
       script_file = pkgs.writeShellApplication {
         name = "decrypt_provision_key";
         text = script;
@@ -84,11 +50,23 @@ in {
     mkProvisionKeyScript = {
       pubk_dir,
       privk_dir,
+      secretf,
       key_type ? "rsa",
       encrypt_key_cmd ? default_encrypt_provision_key,
       runtimeInputs ? [],
+      argon2_time ? 4,
+      argon2_memory ? 65536,
+      argon2_parallelism ? 16,
       ...
     }: let
+      args = builtins.concatStringsSep " " [
+        "-f ${secretf}"
+        "-t ${builtins.toString argon2_time}"
+        "-m ${builtins.toString argon2_memory}"
+        "-p ${builtins.toString argon2_parallelism}"
+        "--re-encrypt"
+        "-d ${pubk_dir}"
+      ];
       script = ''
         mkdir -p ${pubk_dir} ${privk_dir}
         read -r -p "Enter the name of the provision key: " keyname
@@ -96,11 +74,12 @@ in {
         mv "$keyname.pub" "${pubk_dir}/$keyname.pub"
         ${encrypt_key_cmd "$keyname" "${privk_dir}/$keyname"}
         ${pkgs.srm}/bin/srm -D "$keyname"
+        ${manage_secrets} ${args}
       '';
       script_file = pkgs.writeShellApplication {
         name = "make_provision_key";
         text = script;
-        inherit runtimeInputs;
+        runtimeInputs = runtimeInputs ++ [ pkgs.rage ];
       };
     in {
       type = "app";
@@ -109,41 +88,23 @@ in {
 
     mkEditScript = {
       secretf,
-      editor_fct,
-      plaintext_file ? ".secrets_plain.json",
-      pwd_cache ? ".nixos_secrets_password_cache",
       pubk_dirs ? [],
-      add_pubk ? {},
-      secrets_owners ? {},
+      # add_pubk ? {},
       argon2_time ? 4,
-      argon2_memory ? 64,
-      argon2_parallelism ? 4,
-      argon2_salt ? 64,
+      argon2_memory ? 65536,
+      argon2_parallelism ? 16,
     }: let
       args = builtins.concatStringsSep " " ([
         "-f ${secretf}"
-        "-s '${builtins.toJSON secrets_owners}'"
-        "-c ${pwd_cache}"
-        "-p ${plaintext_file}"
-        "-o \"$OWNER\""
-        "-at ${builtins.toString argon2_time}"
-        "-am ${builtins.toString argon2_memory}"
-        "-ap ${builtins.toString argon2_parallelism}"
-        "-as ${builtins.toString argon2_salt}"
-      ] ++ (lib.attrsets.mapAttrsToList (name: k: "-k \"${name}:${k}\"") add_pubk)
+        "-t ${builtins.toString argon2_time}"
+        "-m ${builtins.toString argon2_memory}"
+        "-p ${builtins.toString argon2_parallelism}"
+      ]
+      # ++ (lib.attrsets.mapAttrsToList (name: k: "-k \"${name}:${k}\"") add_pubk)
       ++ (builtins.map (d: "-d ${d}") pubk_dirs));
-      # TODO  Trap any error and delete sensitive data if anything goes wrong
+
       script = ''
-        set -e
-        if [ $# -eq 1 ]; then
-          OWNER="$1"
-        else
-          OWNER=
-        fi
-        ${manage_secrets} load ${args}
-        ${editor_fct plaintext_file}
-        ${manage_secrets} secure ${args}
-        ${pkgs.srm}/bin/srm -D ${plaintext_file} ${pwd_cache}
+        ${manage_secrets} ${args}
       '';
       script_file = pkgs.writeShellApplication {
         name = "edit_nixos_secrets";

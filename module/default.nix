@@ -1,26 +1,13 @@
 seclib: system_secrets: {config, lib, pkgs, ...}@args: let
   cfg = config.secrets;
+  sectypes = import ./types.nix {inherit config lib pkgs; };
 
   # Create options for a given secret
-  mkSecOptions = parents: name: data: let
-    # Allows to consult the current config of other options of a secret to set default value
-    #   Exemple:  Default group is the current config set for the user
-    get_opt_cfg = p: tree: if (builtins.length p) == 0
-      then tree
-      else get_opt_cfg (lib.lists.drop 1 p) (builtins.getAttr (builtins.head p) tree);
-    opt_cfg = get_opt_cfg (parents ++ [ name ]) cfg.store;
-  in {
+  mkSecOptions = parents: name: data: {
     # Required in order to know if an attr is a secret, or not
     __is_leaf = lib.mkOption {
       default = true;
       visible = false;
-    };
-    enable = lib.mkOption {
-      type = lib.types.bool;
-      default = false;
-      description = ''
-        If set to true, will decrypt the secret, if not it will stay encrypted and be unusable.
-      '';
     };
     file = lib.mkOption {
       description = "Where to decrypt the secret ${name}";
@@ -37,23 +24,8 @@ seclib: system_secrets: {config, lib, pkgs, ...}@args: let
     age_enc_data = lib.mkOption {
       type = lib.types.str;
       description = "Encrypted data for the secret ${name}";
-      default = data.pubk;
+      default = data.__rage__;
       visible = false;
-    };
-    user = lib.mkOption {
-      type = lib.types.str;
-      description = "User owning the secret ${name}";
-      default = "root";
-    };
-    group = lib.mkOption {
-      type = lib.types.str;
-      description = "Group owning the secret ${name}";
-      default = opt_cfg.user;
-    };
-    perms = lib.mkOption {
-      type = lib.types.str;
-      description = "Permissions granted to the file containing the secret ${name}";
-      default = "400";
     };
     link = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
@@ -72,31 +44,25 @@ seclib: system_secrets: {config, lib, pkgs, ...}@args: let
   };
 
   # Goes through the secrets tree and create secrets options if it's a "leaf"
-  mkOptionTree = parents: name: data: if builtins.hasAttr "__password__" data
+  mkOptionTree = parents: name: data: if builtins.hasAttr "__rage__" data
       then mkSecOptions parents name data
       else lib.attrsets.mapAttrs (mkOptionTree (parents ++ [ name ])) data;
 
 in {
   options.secrets = {
     store = lib.attrsets.mapAttrs (mkOptionTree []) system_secrets.secrets;
+    setup = lib.mkOption {
+      type = lib.types.attrsOf sectypes.secretSetupType;
+      default = {};
+      description = "Setup options for secrets to decrypt on this system";
+    };
 
     # Options related to the provision key, the master key that will decrypt
     #   all the other secrets in the system
-    provision_key = {
-      key = lib.mkOption {
-        type = lib.types.path;
-        description = "Which provision key to use for this system";
-      };
-      file = lib.mkOption {
-        type = lib.types.str;
-        description = "Where to store the provision key on the system";
-        default = "/etc/secrets_key";
-      };
-      checksum = lib.mkOption {
-        type = lib.types.str;
-        description = "Where to store the checksum of the key";
-        default = "/etc/secrets_key.sha512sum";
-      };
+    provision_key = lib.mkOption {
+      type = lib.types.str;
+      description = "Where to store the provision key on the system";
+      default = "/etc/secrets_key";
     };
 
     decrypt_key_cmd = lib.mkOption {
@@ -111,47 +77,33 @@ in {
     };
   };
 
-  config = let
-    decrypt_provision_key = import ./decrypt_provision_key.nix seclib args;
-    decrypt_provision_key_check = ''
-      if ! [ -f ${cfg.provision_key.file} ]; then
-        ${decrypt_provision_key}
-      elif ! [ -f ${cfg.provision_key.checksum} ]; then
-        ${decrypt_provision_key}
-      elif ! echo "$(cat ${cfg.provision_key.checksum}) ${cfg.provision_key.key}"|sha512sum --check 1>/dev/null; then
-        ${decrypt_provision_key}
-      fi
-    '';
-  in {
+  config = {
     systemd.services = import ./services.nix seclib args;
 
     system.activationScripts.decrypt_secrets = let
-      decrypt_secret = parents: secret: let
-        secret_id = "${builtins.concatStringsSep "." parents}.${secret.name}";
-        dst = seclib.gen_secret_path parents secret.name;
+      decrypt_secret = parents: { age_enc_data, transform, file, ...}: let
+        secret_id = builtins.concatStringsSep "." parents;
         decrypt_cmd = builtins.concatStringsSep " | " [
-          "echo \"${secret.age_enc_data}\""
+          "echo \"${age_enc_data}\""
           "base64 -d"
-          "${pkgs.rage}/bin/rage --decrypt -i ${cfg.provision_key.file}"
-          secret.transform
+          "${pkgs.rage}/bin/rage --decrypt -i ${cfg.provision_key}"
+          transform
         ];
-      in if secret.enable then ''
-        mkdir -p $(dirname ${dst})
+      in ''
+        mkdir -p $(dirname ${file})
         echo "Decrypting ${secret_id}..."
-        ${decrypt_cmd} > ${secret.file}
-      '' else ''
-        echo "Decryption for ${secret_id} disabled, skipping ..."
+        ${decrypt_cmd} > ${file}
       '';
 
-      decrypt_all_secrets = parents: name: data: if builtins.hasAttr "__is_leaf" data
+      decrypt_all_secrets = parents: data: if builtins.hasAttr "__is_leaf" data
         then decrypt_secret parents data
-        else lib.attrsets.mapAttrsToList (decrypt_all_secrets (parents ++ [ name ])) data;
+        else lib.attrsets.mapAttrsToList (n: s: decrypt_all_secrets (parents ++ [n]) s) data;
 
       decrypt_all_secrets_cmd = builtins.concatStringsSep "\n" (lib.lists.flatten (
-        lib.attrsets.mapAttrsToList (decrypt_all_secrets []) cfg.store
-        ));
+        lib.attrsets.mapAttrsToList (n: s: decrypt_all_secrets [n] s.secret) cfg.setup
+      ));
     in ''
-      if [ -f ${cfg.provision_key.file} ]; then
+      if [ -f ${cfg.provision_key} ]; then
         ${decrypt_all_secrets_cmd}
         echo "All secrets decrypted successfully"
       else
