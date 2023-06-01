@@ -139,9 +139,7 @@ in {
         mkdir -p $(dirname ${dst})
         echo "Decrypting ${secret_id}..."
         ${decrypt_cmd} > ${secret.file}
-      '' else ''
-        echo "Decryption for ${secret_id} disabled, skipping ..."
-      '';
+      '' else "";
 
       decrypt_all_secrets = parents: name: data: if builtins.hasAttr "__is_leaf" data
         then decrypt_secret parents data
