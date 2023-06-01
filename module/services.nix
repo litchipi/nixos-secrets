@@ -31,8 +31,8 @@ in {
     serviceConfig.Type = "oneshot";
     script = let
       # Go through the secrets config and set permissions based on their configuration set
-      set_perms_and_link = _: data: if ((builtins.hasAttr "__is_leaf" data) && data.enable)
-        then (''
+      set_perms_and_link = _: data: if builtins.hasAttr "__is_leaf"
+        then if !data.enable then "" else (''
           if [ -f ${data.file} ]; then
             chmod 400 ${data.file}
             chown ${data.user}:${data.group} ${data.file}
