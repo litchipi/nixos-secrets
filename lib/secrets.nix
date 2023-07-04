@@ -11,7 +11,7 @@
 
     set_common_config = conf: tree: builtins.mapAttrs (name: value:
       if builtins.hasAttr "__is_leaf" value
-        then conf
+        then value // conf
         else (set_common_config conf value)
         ) tree;
   };
@@ -20,4 +20,9 @@ in base_lib // {
   mkModule = secrets_file: import ../module/default.nix base_lib (
     builtins.fromJSON (builtins.readFile secrets_file)
   );
+
+  mkSecretOption = description: lib.mkOption {
+    type = lib.types.attrs;
+    inherit description;
+  };
 }

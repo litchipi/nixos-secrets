@@ -1,4 +1,4 @@
-{ pkgs, lib, ... }: {
+{ lib, ... }: {
   secret_file_def = lib.types.submodule {
     options = {
       enable = lib.mkOption {
