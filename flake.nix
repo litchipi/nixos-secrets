@@ -9,7 +9,6 @@
     lib = pkgs.lib;
 
     python_version = pkgs.python310;
-    python_packages_version = pkgs.python310Packages;
     pythonpkg = python_version.withPackages (p: with p; [
       argon2-cffi
       pycryptodome

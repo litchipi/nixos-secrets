@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }: {
+{ config, pkgs, ... }: {
   secrets = {
     provision_key.key = ./some/path;
     store = {

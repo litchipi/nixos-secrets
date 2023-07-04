@@ -10,10 +10,12 @@
     getSecretFileDest = name: "/run/nixos-secret-files/${sanitizeName name}";
 
     set_common_config = conf: tree: builtins.mapAttrs (name: value:
-      if builtins.hasAttr "__is_leaf" value
-        then value // conf
-        else (set_common_config conf value)
-        ) tree;
+      if value == {} then throw "No secret on leaf"
+      else
+        if builtins.hasAttr "__is_leaf" value
+          then value // conf
+          else (set_common_config conf value)
+      ) tree;
   };
 
 in base_lib // {
