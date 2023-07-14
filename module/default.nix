@@ -111,18 +111,7 @@ in {
     };
   };
 
-  config = let
-    decrypt_provision_key = import ./decrypt_provision_key.nix seclib args;
-    decrypt_provision_key_check = ''
-      if ! [ -f ${cfg.provision_key.file} ]; then
-        ${decrypt_provision_key}
-      elif ! [ -f ${cfg.provision_key.checksum} ]; then
-        ${decrypt_provision_key}
-      elif ! echo "$(cat ${cfg.provision_key.checksum}) ${cfg.provision_key.key}"|sha512sum --check 1>/dev/null; then
-        ${decrypt_provision_key}
-      fi
-    '';
-  in {
+  config = {
     systemd.services = import ./services.nix seclib args;
 
     system.activationScripts.decrypt_secrets = let
@@ -139,7 +128,7 @@ in {
         mkdir -p $(dirname ${dst})
         echo "Decrypting ${secret_id}..."
         ${decrypt_cmd} > ${secret.file}
-      '' else "";
+      '' else "# Secret ${secret_id} not enabled, skipping";
 
       decrypt_all_secrets = parents: name: data: if builtins.hasAttr "__is_leaf" data
         then decrypt_secret parents data
