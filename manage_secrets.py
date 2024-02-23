@@ -158,8 +158,17 @@ class SecretsREPL(Cmd):
         self.data = plain
         self.base = []
 
-    # TODO    do_write to allow editing
+    def display_dict(self, data):
+        if data is None:
+            print("Data not found")
+        else:
+            print(json.dumps(data, indent=2))
 
+    # TODO  Add more commands
+    #    ls: list keys
+    #    cd ..: come back from 1 node
+    #    generate: generate a secret
+    #    editfile: edit a secret file using a given command
     def do_read(self, args):
         '''
         Usage: read <fname> <key> <type>
@@ -252,12 +261,6 @@ class SecretsREPL(Cmd):
             self.base.extend(keys)
         self.prompt = ".".join(self.base) + ">>> "
 
-    def display_dict(self, data):
-        if data is None:
-            print("Data not found")
-        else:
-            print(json.dumps(data, indent=2))
-
     def do_copy(self, args):
         '''
         Usage: copy <source> <destination>
@@ -302,9 +305,7 @@ class SecretsREPL(Cmd):
 
         keys = get_keys(args[0])
         data = rm_from_keys(self.data, self.base + keys)
-        if data and (keys[-1] in data):
-            del data[keys[-1]]
-            self.changed.append(self.base + keys)
+        self.changed.append(self.base + keys)
         
     def do_set(self, args):
         '''
@@ -493,8 +494,9 @@ class SecretsManager:
         
         for changed in self.key_changed:
             plain_data = get_from_keys(self.plain, changed)
-            assert plain_data is not None
-            if isinstance(plain_data, dict):
+            if plain_data is None:
+                rm_from_keys(self.enc["secrets"], changed)
+            elif isinstance(plain_data, dict):
                 tree = self.encrypt_tree(plain_data)
                 set_from_keys(self.enc["secrets"], changed, tree)
             else:
