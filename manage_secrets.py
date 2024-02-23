@@ -78,15 +78,17 @@ def get_from_keys(data, keys):
     return data
 
 def rm_from_keys(data, keys):
+    assert type(data) == dict
+
     if len(keys) == 0:
         for key in data.keys():
             del data[key]
 
     for key in keys[:-1]:
         if key not in data:
-            break
+            return
         if type(data[key]) != dict:
-            break
+            return
         data = data[key]
 
     if keys[-1] in data:
@@ -299,7 +301,7 @@ class SecretsREPL(Cmd):
             return
 
         keys = get_keys(args[0])
-        data = rm_from_keys(self.data, self.base + [keys])
+        data = rm_from_keys(self.data, self.base + keys)
         if data and (keys[-1] in data):
             del data[keys[-1]]
             self.changed.append(self.base + keys)
