@@ -89,11 +89,12 @@ in {
           "${pkgs.rage}/bin/rage --decrypt -i ${cfg.provision_key}"
           transform
         ];
-      in ''
-        mkdir -p $(dirname ${file})
-        echo "Decrypting ${secret_id}..."
-        ${decrypt_cmd} > ${file}
-      '';
+        script = pkgs.writeShellScript "decrypt-${secret_id}" ''
+          mkdir -p $(dirname ${file})
+          echo "Decrypting ${secret_id}..."
+          ${decrypt_cmd} > ${file}
+        '';
+      in "${script}";
 
       decrypt_all_secrets = parents: data: if builtins.hasAttr "__is_leaf" data
         then decrypt_secret parents data
