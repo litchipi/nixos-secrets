@@ -9,11 +9,10 @@ import hashlib
 import argparse
 import subprocess
 from cmd import Cmd
-from Crypto.Cipher import AES
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from argon2 import PasswordHasher
 from argon2.low_level import Type
 
-AES_MODE = AES.MODE_GCM
 ARGON2_SALT_LEN = 64
 ARGON2_DEFAULT_PARAMS = {
     "time_cost": 32,
@@ -337,7 +336,8 @@ class SecretsManager:
         self.argon2_hasher = self.prepare_argon2_hasher()
 
         self.pwkd = self.get_pwd_deriv()
-        self.plain = self.decrypt_data(self.enc["secrets"])
+
+        self.plain = self.decrypt_tree(self.enc["secrets"])
 
         if not self.re_encrypt:
             self.start_repl()
@@ -390,7 +390,7 @@ class SecretsManager:
                 data.update(json.load(f))
         return data
 
-    def prepare_argon2_hasher(self, t, m, p):
+    def prepare_argon2_hasher(self):
         # We want type ID, which is default.
         return PasswordHasher(
             time_cost=self.enc["argon2"]["time"],
@@ -407,6 +407,8 @@ class SecretsManager:
             print(f"Password hint {hint}")
             pwd_hash = None
             while pwd_hash != self.enc["aes"]["hash"]:
+                if pwd_hash:
+                    print("Wrong password")
                 pwd_plain = getpass.getpass("Enter your password: ")
                 pwd_hash = sha512hash(pwd_plain)
             salt = base64_extract(self.enc["aes"]["pwkd_salt"])
@@ -431,7 +433,7 @@ class SecretsManager:
 
         return base64_extract(pwkd.split("$")[-1])
 
-    def decrypt_data(self, branch):
+    def decrypt_tree(self, branch):
         assert isinstance(branch, dict)
         if "__aes__" in branch:
             enc = branch["__aes__"]
@@ -439,13 +441,18 @@ class SecretsManager:
             aes_key = base64_extract(key_deriv.split("$")[-1])
             aes_key_hash = sha512hash(key_deriv.split("$")[-1])
             if aes_key_hash != enc["pwkd_hash"]:
-                self.error(f"AES key doesn't match", fail=False)
+                self.error(f"AES key doesn't match")
                 return None
-            
-            cipher = AES.new(aes_key, AES_MODE, nonce=base_decode(enc["nonce"]))
-            plain = cipher.decrypt_and_verify(
-                base_decode(enc["data"]),
-                base_decode(enc["tag"])
+
+            cipher = AESGCM(aes_key)
+            encd = base_decode(enc["data"])
+            if "tag" in enc.keys():
+                encd += base_decode(enc["tag"])
+
+            plain = cipher.decrypt(
+                base_decode(enc["nonce"]),
+                encd,
+                None,
             )
             return self.unwrap_plain_data(plain)
 
@@ -454,9 +461,7 @@ class SecretsManager:
             if type(val) != dict:
                 self.warn(f"Got non-dict branch {key} in data")
                 continue
-            res = self.decrypt_data(val)
-            if res is not None:
-                data[key] = res
+            data[key] = self.decrypt_tree(val)
         return data
 
     def encrypt_tree(self, data):
@@ -480,14 +485,14 @@ class SecretsManager:
         aes_key_hash = sha512hash(key_deriv.split("$")[-1])
         pwkd_salt = key_deriv.split("$")[-2]
 
-        cipher = AES.new(aes_key, AES_MODE)
-        ciphertext, tag = cipher.encrypt_and_digest(self.wrap_plain_data(plain_data))
+        cipher = AESGCM(aes_key)
+        nonce = os.urandom(12)
+        ciphertext = cipher.encrypt(nonce, self.wrap_plain_data(plain_data), None)
         aes_data = {
             "salt": pwkd_salt,
             "pwkd_hash": aes_key_hash,
             "data": base_encode(ciphertext),
-            "nonce": base_encode(cipher.nonce),
-            "tag": base_encode(tag),
+            "nonce": base_encode(nonce),
         }
         rage_data = rage_encrypt(plain_data.encode(), self.pubkeys.values())
         return aes_data, rage_data
