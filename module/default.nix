@@ -69,12 +69,6 @@ in {
       default = seclib.decrypt_provision_file;
       description = "Function to use to decrypt the provision key";
     };
-
-    secret_files = lib.mkOption {
-      type = lib.types.attrsOf seclib.types.secret_file_def;
-      description = "Secret files to create";
-      default = {};
-    };
   };
 
   config = {

@@ -1,32 +1,30 @@
 { lib, ... }: {
-  secret_file_def = lib.types.submodule {
+  secretType = name: lib.types.submodule {
     options = {
-      enable = lib.mkOption {
-        type = lib.types.bool;
-        default = false;
+      enable = lib.mkEnableOption {
         description = ''
           If set to true, will decrypt the secret file, if not it will stay encrypted and be unusable.
         '';
       };
-      perms = lib.mkOption {
-        description = "Permissions to set for the file";
-        default = "400";
-        type = lib.types.str;
+      file = lib.mkOption {
+        type = lib.types.path;
+        description = "Where to decrypt the secret ${name}";
       };
-      user = lib.mkOption {
-        description = "The owner of the secret file";
-        default = "root";
+      age_enc_data = lib.mkOption {
         type = lib.types.str;
+        description = "Encrypted data for the secret ${name}";
       };
-      group = lib.mkOption {
-        description = "The group owning the secret file";
-        default = null;
-        type = lib.types.nullOr lib.types.str;
+      link = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        description = "Destination where to create a symlink for the secret file ${name}";
       };
-      text = lib.mkOption {
-        description = "The text inside the secret file";
-        default = "";
+      transform = lib.mkOption {
         type = lib.types.str;
+        description = ''
+          Bash code to transform ${name} before saving to file.
+          The secret will be piped into the code:
+            <decrypt> | <transformation code> > /path/to/destination
+        '';
       };
     };
   };
