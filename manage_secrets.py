@@ -18,7 +18,7 @@ ARGON2_SALT_LEN = 64
 ARGON2_DEFAULT_PARAMS = {
     "time_cost": 32,
     "memory_cost": 65536,
-    "parallelism": 4,
+    "parallelism": 16,
 }
 KEY_DERIVATION_HASH_LEN = 16
 ARGON2_HASH_TYPE = Type.ID
@@ -328,17 +328,15 @@ class SecretsManager:
         self.enable_debug = args.debug
         self.debug(args)
 
-        self.enc = self.load_secret_file(args.secrets)
+        self.enc = self.load_secret_file(args)
         self.pubkeys = self.enc["keys"]
         for key in self.load_public_keys(args.pubk_dir):
             key_id = get_pubk_id(key)
             if key_id not in self.pubkeys:
                 self.pubkeys[key_id] = key
-
-        self.argon2_hasher = self.prepare_argon2_hasher(args.argon2_time, args.argon2_memory, args.argon2_parallelism)
+        self.argon2_hasher = self.prepare_argon2_hasher()
 
         self.pwkd = self.get_pwd_deriv()
-
         self.plain = self.decrypt_data(self.enc["secrets"])
 
         if not self.re_encrypt:
@@ -376,21 +374,28 @@ class SecretsManager:
         self.debug("Found {} public keys", len(pubkeys))
         return pubkeys
 
-    def load_secret_file(self, secretf):
+    def load_secret_file(self, args):
         data = {
             "secrets": {},
             "keys": {},
             "aes": {},
+            "argon2": {
+                "time": args.argon2_time,
+                "memory": args.argon2_memory,
+                "parallelism": args.argon2_parallelism,
+            },
         }
-        if os.path.isfile(secretf):
-            with open(secretf, "r") as f:
+        if os.path.isfile(args.secrets):
+            with open(args.secrets, "r") as f:
                 data.update(json.load(f))
         return data
 
     def prepare_argon2_hasher(self, t, m, p):
         # We want type ID, which is default.
         return PasswordHasher(
-            time_cost=t, memory_cost=m, parallelism=p,
+            time_cost=self.enc["argon2"]["time"],
+            memory_cost=self.enc["argon2"]["memory"],
+            parallelism=self.enc["argon2"]["parallelism"],
             hash_len=KEY_DERIVATION_HASH_LEN,
             salt_len=ARGON2_SALT_LEN,
             type=ARGON2_HASH_TYPE,
@@ -490,6 +495,7 @@ class SecretsManager:
     def encrypt_data(self):
         if self.re_encrypt:
             set_from_keys(self.enc, ["secrets"], self.encrypt_tree(self.plain))
+            self.enc["argon2"] = self.argon2_opts
             return
         
         for changed in self.key_changed:
